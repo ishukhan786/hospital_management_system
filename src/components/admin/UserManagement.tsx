@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Users, UserPlus, Edit, Trash2, ShieldAlert, Settings as SettingsIcon, Save } from 'lucide-react';
 import { User, UserRole, AuditLog, HospitalSettings } from '../../types';
-import { getUsers, saveUser, deleteUser, getAuditLogs, getSettings, saveSettings } from '../../db/database';
+import { getUsers, saveUser, deleteUser, getAuditLogs, getSettings, saveSettings, clearAllSystemData } from '../../db/database';
 import { showToast } from '../common/Toast';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 
@@ -25,6 +25,14 @@ export const UserManagement: React.FC = () => {
 
   // Confirm Delete State
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  const handleFactoryReset = async () => {
+    await clearAllSystemData();
+    showToast('All placeholder and system records wiped clean!', 'success');
+    setIsResetConfirmOpen(false);
+    refreshData();
+  };
 
   const refreshData = () => {
     setUsers(getUsers());
@@ -287,9 +295,14 @@ export const UserManagement: React.FC = () => {
               />
             </div>
 
-            <button type="submit" className="btn btn-primary">
-              <Save size={18} /> Save Settings
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
+              <button type="submit" className="btn btn-primary">
+                <Save size={18} /> Save Settings
+              </button>
+              <button type="button" className="btn btn-danger" onClick={() => setIsResetConfirmOpen(true)}>
+                🧹 Factory Reset / Clear All System Data
+              </button>
+            </div>
           </form>
         </div>
       )}
@@ -362,6 +375,15 @@ export const UserManagement: React.FC = () => {
         message="Are you sure you want to delete this user? They will immediately lose access to the system."
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      {/* Confirm Reset Dialog */}
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        title="Factory Reset / Clear All Data"
+        message="Are you absolutely sure you want to wipe all patients, doctors, appointments, prescriptions, and billing records from both local storage and Supabase? This action cannot be undone."
+        onConfirm={handleFactoryReset}
+        onCancel={() => setIsResetConfirmOpen(false)}
       />
     </div>
   );

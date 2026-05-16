@@ -580,3 +580,42 @@ export const saveSettings = (settings: HospitalSettings) => {
 
 // --- AUDIT LOGS ---
 export const getAuditLogs = (): AuditLog[] => getItems(STORAGE_KEYS.AUDIT_LOGS);
+
+// --- RESET / CLEAR SYSTEM DATA ---
+export const clearAllSystemData = async () => {
+  try {
+    // 1. Wipe local storage tables except Super Admin user and settings
+    setItems(STORAGE_KEYS.USERS, initialUsers);
+    setItems(STORAGE_KEYS.PATIENTS, []);
+    setItems(STORAGE_KEYS.DOCTORS, []);
+    setItems(STORAGE_KEYS.APPOINTMENTS, []);
+    setItems(STORAGE_KEYS.PRESCRIPTIONS, []);
+    setItems(STORAGE_KEYS.LAB_TESTS, []);
+    setItems(STORAGE_KEYS.FEES_OPD, []);
+    setItems(STORAGE_KEYS.ADMISSIONS, []);
+    setItems(STORAGE_KEYS.FEES_IPD, []);
+    setItems(STORAGE_KEYS.RECEIPTS, []);
+    setItems(STORAGE_KEYS.AUDIT_LOGS, initialAuditLogs);
+
+    // 2. Wipe Supabase tables
+    await Promise.all([
+      supabase.from('users').delete().neq('id', 'usr-1'), // keep super admin
+      supabase.from('patients').delete().neq('patient_no', '0'),
+      supabase.from('doctors').delete().neq('user_id', '0'),
+      supabase.from('appointments').delete().neq('id', '0'),
+      supabase.from('prescriptions').delete().neq('id', '0'),
+      supabase.from('lab_tests').delete().neq('id', '0'),
+      supabase.from('fees_opd').delete().neq('id', '0'),
+      supabase.from('admissions').delete().neq('id', '0'),
+      supabase.from('fees_ipd').delete().neq('id', '0'),
+      supabase.from('receipts').delete().neq('id', '0'),
+      supabase.from('audit_logs').delete().neq('id', 'log-1')
+    ]);
+
+    console.log('System wiped clean successfully.');
+    window.dispatchEvent(new Event('hms_db_update'));
+  } catch (err) {
+    console.error('Error clearing system data:', err);
+  }
+};
+
