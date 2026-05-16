@@ -56,6 +56,7 @@ export const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onPrin
 
     const newPatient: Patient = {
       patient_no: patientNo,
+      hospital_id: 'hospital-1',
       name,
       father_name: fatherName,
       cnic,

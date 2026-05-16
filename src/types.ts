@@ -1,7 +1,27 @@
-export type UserRole = 'SUPER_ADMIN' | 'RECEPTIONIST' | 'DOCTOR' | 'CASHIER' | 'LAB_STAFF';
+export type UserRole = 'SAAS_MASTER_ADMIN' | 'SUPER_ADMIN' | 'RECEPTIONIST' | 'DOCTOR' | 'CASHIER' | 'LAB_STAFF';
+
+export type SubscriptionPlan = 'BASIC' | 'STANDARD' | 'ENTERPRISE';
+export type SubscriptionStatus = 'ACTIVE' | 'SUSPENDED' | 'EXPIRED';
+
+export interface TenantHospital {
+  id: string; // hospital_id
+  name: string;
+  logo: string;
+  address: string;
+  phone: string;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  joined_date: string;
+  expiry_date: string;
+  owner_name: string;
+  owner_email: string;
+  max_doctors: number;
+  max_staff: number;
+}
 
 export interface User {
   id: string;
+  hospital_id: string; // 'saas-master' for SAAS_MASTER_ADMIN
   name: string;
   email: string;
   password_hash: string;
@@ -17,6 +37,7 @@ export type PatientType = 'OPD' | 'IPD';
 
 export interface Patient {
   patient_no: string; // PT-YYYY-XXXXX
+  hospital_id: string;
   name: string;
   father_name: string;
   cnic: string; // #####-#######-#
@@ -33,6 +54,7 @@ export interface Patient {
 
 export interface Doctor {
   user_id: string;
+  hospital_id: string;
   specialization: string;
   qualification: string;
   fee: number;
@@ -44,6 +66,7 @@ export type AppointmentType = 'New' | 'Follow-up';
 
 export interface Appointment {
   id: string;
+  hospital_id: string;
   patient_id: string; // patient_no
   doctor_id: string; // user_id
   date: string;
@@ -55,6 +78,7 @@ export interface Appointment {
 
 export interface Medicine {
   id: string;
+  hospital_id: string;
   prescription_id: string;
   name: string;
   dose: string;
@@ -65,6 +89,7 @@ export interface Medicine {
 
 export interface Prescription {
   id: string;
+  hospital_id: string;
   appointment_id: string;
   patient_id: string;
   doctor_id: string;
@@ -80,6 +105,7 @@ export type LabTestStatus = 'Pending' | 'Processing' | 'Completed';
 
 export interface LabTest {
   id: string;
+  hospital_id: string;
   patient_id: string;
   doctor_id: string;
   test_name: string;
@@ -96,6 +122,7 @@ export type FeeStatus = 'Paid' | 'Unpaid' | 'Partial';
 
 export interface FeeOPD {
   id: string;
+  hospital_id: string;
   patient_id: string;
   doctor_id: string;
   appointment_id: string;
@@ -109,6 +136,7 @@ export type AdmissionStatus = 'Admitted' | 'Discharged';
 
 export interface Admission {
   id: string;
+  hospital_id: string;
   patient_id: string;
   doctor_id: string;
   admit_date: string;
@@ -121,6 +149,7 @@ export interface Admission {
 
 export interface FeeIPD {
   id: string;
+  hospital_id: string;
   admission_id: string;
   charge_type: string;
   amount: number;
@@ -129,6 +158,7 @@ export interface FeeIPD {
 
 export interface Receipt {
   id: string;
+  hospital_id: string;
   patient_id: string;
   total_amount: number;
   discount: number;
@@ -141,6 +171,7 @@ export interface Receipt {
 }
 
 export interface HospitalSettings {
+  id: string; // hospital_id
   hospital_name: string;
   hospital_logo: string;
   departments: string[];
@@ -150,6 +181,7 @@ export interface HospitalSettings {
 
 export interface AuditLog {
   id: string;
+  hospital_id: string;
   user_id: string;
   user_name: string;
   role: UserRole;

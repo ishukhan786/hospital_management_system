@@ -91,6 +91,7 @@ export const LabDashboard: React.FC<LabDashboardProps> = ({ onPrintReport }) => 
 
     const testObj: LabTest = {
       id: editingTest ? editingTest.id : `lab-${Date.now()}`,
+      hospital_id: editingTest ? editingTest.hospital_id : 'hospital-1',
       patient_id: patientId,
       doctor_id: doctorId,
       test_name: testName,

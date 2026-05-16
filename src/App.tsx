@@ -20,6 +20,7 @@ import { DoctorDashboard } from './components/doctor/DoctorDashboard';
 import { PatientExamination } from './components/doctor/PatientExamination';
 import { CashierDashboard } from './components/cashier/CashierDashboard';
 import { LabDashboard } from './components/laboratory/LabDashboard';
+import { SaaSAdminDashboard } from './components/saas/SaaSAdminDashboard';
 
 // Print Modal
 import { PrintModal } from './components/print/PrintModal';
@@ -46,8 +47,11 @@ export const App: React.FC = () => {
     setCurrentUser(getCurrentUser());
 
     const handleAuthUpdate = () => {
-      setCurrentUser(getCurrentUser());
-      setActiveTab('dashboard'); // reset tab on role switch
+      const user = getCurrentUser();
+      setCurrentUser(user);
+      if (user) {
+        setActiveTab(user.role === 'SAAS_MASTER_ADMIN' ? 'saas_dashboard' : 'dashboard');
+      }
     };
 
     window.addEventListener('hms_auth_update', handleAuthUpdate);
@@ -88,7 +92,13 @@ export const App: React.FC = () => {
     return (
       <>
         <Toast />
-        <Login onLoginSuccess={() => setCurrentUser(getCurrentUser())} />
+        <Login onLoginSuccess={() => {
+          const user = getCurrentUser();
+          setCurrentUser(user);
+          if (user) {
+            setActiveTab(user.role === 'SAAS_MASTER_ADMIN' ? 'saas_dashboard' : 'dashboard');
+          }
+        }} />
       </>
     );
   }
@@ -96,6 +106,10 @@ export const App: React.FC = () => {
   // Render Module Content based on Active Tab
   const renderContent = () => {
     switch (activeTab) {
+      // SaaS Master Admin
+      case 'saas_dashboard':
+        return <SaaSAdminDashboard />;
+
       case 'dashboard':
         return <StatsCards />;
 

@@ -1,11 +1,29 @@
 -- ====================================================================
--- SUPABASE POSTGRESQL DATABASE SCHEMA FOR HOSPITAL MANAGEMENT SYSTEM
+-- SUPABASE POSTGRESQL MULTI-TENANT SAAS SCHEMA FOR HOSPITAL MANAGEMENT
 -- Copy and paste this script into your Supabase SQL Editor and click Run.
 -- ====================================================================
+
+-- 0. Tenant Hospitals Table (SaaS Multi-Tenancy)
+CREATE TABLE IF NOT EXISTS public.tenant_hospitals (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    logo TEXT NOT NULL,
+    address TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    plan TEXT NOT NULL,
+    status TEXT NOT NULL,
+    joined_date TEXT NOT NULL,
+    expiry_date TEXT NOT NULL,
+    owner_name TEXT NOT NULL,
+    owner_email TEXT NOT NULL,
+    max_doctors INTEGER NOT NULL,
+    max_staff INTEGER NOT NULL
+);
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS public.users (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL, -- 'saas-master' or tenant_hospitals.id
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
@@ -20,9 +38,10 @@ CREATE TABLE IF NOT EXISTS public.users (
 -- 2. Patients Table
 CREATE TABLE IF NOT EXISTS public.patients (
     patient_no TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     father_name TEXT NOT NULL,
-    cnic TEXT UNIQUE NOT NULL,
+    cnic TEXT NOT NULL,
     mobile TEXT NOT NULL,
     dob TEXT NOT NULL,
     gender TEXT NOT NULL,
@@ -31,12 +50,14 @@ CREATE TABLE IF NOT EXISTS public.patients (
     city TEXT NOT NULL,
     registered_date TEXT NOT NULL,
     patient_type TEXT NOT NULL,
-    photo_url TEXT
+    photo_url TEXT,
+    UNIQUE(hospital_id, cnic)
 );
 
 -- 3. Doctors Table
 CREATE TABLE IF NOT EXISTS public.doctors (
     user_id TEXT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     specialization TEXT NOT NULL,
     qualification TEXT NOT NULL,
     fee INTEGER NOT NULL,
@@ -46,6 +67,7 @@ CREATE TABLE IF NOT EXISTS public.doctors (
 -- 4. Appointments Table
 CREATE TABLE IF NOT EXISTS public.appointments (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     doctor_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     date TEXT NOT NULL,
@@ -58,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.appointments (
 -- 5. Prescriptions Table
 CREATE TABLE IF NOT EXISTS public.prescriptions (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     appointment_id TEXT NOT NULL REFERENCES public.appointments(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     doctor_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -72,6 +95,7 @@ CREATE TABLE IF NOT EXISTS public.prescriptions (
 -- 6. Lab Tests Table
 CREATE TABLE IF NOT EXISTS public.lab_tests (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     doctor_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     test_name TEXT NOT NULL,
@@ -87,6 +111,7 @@ CREATE TABLE IF NOT EXISTS public.lab_tests (
 -- 7. OPD Fees Table
 CREATE TABLE IF NOT EXISTS public.fees_opd (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     doctor_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     appointment_id TEXT NOT NULL REFERENCES public.appointments(id) ON DELETE CASCADE,
@@ -99,6 +124,7 @@ CREATE TABLE IF NOT EXISTS public.fees_opd (
 -- 8. Admissions Table
 CREATE TABLE IF NOT EXISTS public.admissions (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     doctor_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     admit_date TEXT NOT NULL,
@@ -112,6 +138,7 @@ CREATE TABLE IF NOT EXISTS public.admissions (
 -- 9. IPD Fees Table
 CREATE TABLE IF NOT EXISTS public.fees_ipd (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     admission_id TEXT NOT NULL REFERENCES public.admissions(id) ON DELETE CASCADE,
     charge_type TEXT NOT NULL,
     amount INTEGER NOT NULL,
@@ -121,6 +148,7 @@ CREATE TABLE IF NOT EXISTS public.fees_ipd (
 -- 10. Receipts Table
 CREATE TABLE IF NOT EXISTS public.receipts (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     patient_id TEXT NOT NULL REFERENCES public.patients(patient_no) ON DELETE CASCADE,
     total_amount INTEGER NOT NULL,
     discount INTEGER DEFAULT 0,
@@ -134,7 +162,7 @@ CREATE TABLE IF NOT EXISTS public.receipts (
 
 -- 11. Hospital Settings Table
 CREATE TABLE IF NOT EXISTS public.hospital_settings (
-    id TEXT PRIMARY KEY DEFAULT 'default',
+    id TEXT PRIMARY KEY REFERENCES public.tenant_hospitals(id) ON DELETE CASCADE,
     hospital_name TEXT NOT NULL,
     hospital_logo TEXT NOT NULL,
     departments TEXT[] NOT NULL,
@@ -145,6 +173,7 @@ CREATE TABLE IF NOT EXISTS public.hospital_settings (
 -- 12. Audit Logs Table
 CREATE TABLE IF NOT EXISTS public.audit_logs (
     id TEXT PRIMARY KEY,
+    hospital_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     user_name TEXT NOT NULL,
     role TEXT NOT NULL,
@@ -156,6 +185,7 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
 -- ====================================================================
 -- ENABLE REALTIME FOR ALL TABLES
 -- ====================================================================
+ALTER PUBLICATION supabase_realtime ADD TABLE public.tenant_hospitals;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.users;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.patients;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.doctors;
@@ -168,16 +198,3 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.fees_ipd;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.receipts;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.hospital_settings;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.audit_logs;
-
--- ====================================================================
--- SEED DEFAULT HOSPITAL SETTINGS
--- ====================================================================
-INSERT INTO public.hospital_settings (id, hospital_name, hospital_logo, departments, address, phone)
-VALUES (
-    'default', 
-    'MedCare General Hospital', 
-    '🏥', 
-    ARRAY['Cardiology', 'Pediatrics', 'Orthopedics', 'Neurology', 'General Surgery', 'Gynecology'], 
-    '123 Health Avenue, Medical District, City', 
-    '+92 21 34567890'
-) ON CONFLICT (id) DO NOTHING;

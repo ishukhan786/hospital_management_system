@@ -77,6 +77,9 @@ export const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             ⚡ Fast Demo Credentials Selector
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+            <button type="button" className={`btn ${selectedRoleDemo === 'SAAS_MASTER_ADMIN' ? 'btn-teal' : 'btn-outline'}`} style={{ padding: '6px', fontSize: '0.75rem', gridColumn: 'span 3', background: selectedRoleDemo === 'SAAS_MASTER_ADMIN' ? 'var(--primary-navy)' : undefined, color: selectedRoleDemo === 'SAAS_MASTER_ADMIN' ? 'white' : undefined }} onClick={() => handleRoleSelect('SAAS_MASTER_ADMIN')}>
+              🚀 SaaS Platform Owner (Master Dashboard)
+            </button>
             <button type="button" className={`btn ${selectedRoleDemo === 'SUPER_ADMIN' ? 'btn-teal' : 'btn-outline'}`} style={{ padding: '6px', fontSize: '0.75rem' }} onClick={() => handleRoleSelect('SUPER_ADMIN')}>
               👑 Admin
             </button>

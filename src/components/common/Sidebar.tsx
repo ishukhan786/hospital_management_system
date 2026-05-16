@@ -13,7 +13,8 @@ import {
   Settings,
   LogOut,
   ShieldAlert,
-  Activity
+  Activity,
+  Building2
 } from 'lucide-react';
 import { User, UserRole } from '../../types';
 import { logoutUser, setCurrentUser, getUsers } from '../../db/database';
@@ -32,11 +33,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeTab, setAct
     const userForRole = allUsers.find(u => u.role === role) || allUsers[0];
     setCurrentUser(userForRole);
     showToast(`Switched to ${role} (${userForRole.name})`, 'info');
-    setActiveTab('dashboard');
+    setActiveTab(role === 'SAAS_MASTER_ADMIN' ? 'saas_dashboard' : 'dashboard');
   };
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'RECEPTIONIST', 'DOCTOR', 'CASHIER', 'LAB_STAFF'] },
+
+    // SaaS Master Admin
+    { id: 'saas_dashboard', label: 'SaaS Administration', icon: Building2, roles: ['SAAS_MASTER_ADMIN'] },
 
     // Super Admin
     { id: 'users', label: 'User Management', icon: Users, roles: ['SUPER_ADMIN'] },
@@ -65,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeTab, setAct
 
   const getRoleBadge = (role: UserRole) => {
     switch (role) {
+      case 'SAAS_MASTER_ADMIN': return { label: 'SaaS Owner', bg: '#fef3c7', color: '#b45309' };
       case 'SUPER_ADMIN': return { label: 'Super Admin', bg: '#ffe4e6', color: '#be123c' };
       case 'RECEPTIONIST': return { label: 'Receptionist', bg: '#e0f2fe', color: '#0369a1' };
       case 'DOCTOR': return { label: 'Doctor', bg: '#dcfce7', color: '#15803d' };
@@ -197,6 +202,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeTab, setAct
             outline: 'none'
           }}
         >
+          <option value="SAAS_MASTER_ADMIN">🚀 SaaS Platform Owner</option>
           <option value="SUPER_ADMIN">👑 Super Admin</option>
           <option value="RECEPTIONIST">📋 Receptionist</option>
           <option value="DOCTOR">🩺 Doctor</option>

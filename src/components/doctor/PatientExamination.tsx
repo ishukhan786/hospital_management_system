@@ -30,7 +30,7 @@ export const PatientExamination: React.FC<PatientExaminationProps> = ({
   const [advice, setAdvice] = useState('');
   const [followupDate, setFollowupDate] = useState('');
   const [medicines, setMedicines] = useState<Medicine[]>([
-    { id: `med-${Date.now()}`, prescription_id: '', name: '', dose: '1 Tab', frequency: 'Once daily', duration: '5 Days', instructions: 'After meal' }
+    { id: `med-${Date.now()}`, hospital_id: currentUser ? currentUser.hospital_id : 'hospital-1', prescription_id: '', name: '', dose: '1 Tab', frequency: 'Once daily', duration: '5 Days', instructions: 'After meal' }
   ]);
 
   // History State
@@ -66,7 +66,7 @@ export const PatientExamination: React.FC<PatientExaminationProps> = ({
   const addMedicineRow = () => {
     setMedicines(prev => [
       ...prev,
-      { id: `med-${Date.now()}`, prescription_id: '', name: '', dose: '1 Tab', frequency: 'Once daily', duration: '5 Days', instructions: 'After meal' }
+      { id: `med-${Date.now()}`, hospital_id: currentUser ? currentUser.hospital_id : 'hospital-1', prescription_id: '', name: '', dose: '1 Tab', frequency: 'Once daily', duration: '5 Days', instructions: 'After meal' }
     ]);
   };
 
@@ -95,10 +95,11 @@ export const PatientExamination: React.FC<PatientExaminationProps> = ({
     }
 
     const prscId = `prsc-${Date.now()}`;
-    const finalMedicines = medicines.map(m => ({ ...m, prescription_id: prscId }));
+    const finalMedicines = medicines.map(m => ({ ...m, prescription_id: prscId, hospital_id: currentUser ? currentUser.hospital_id : 'hospital-1' }));
 
     const newPrsc: Prescription = {
       id: prscId,
+      hospital_id: currentUser ? currentUser.hospital_id : 'hospital-1',
       appointment_id: selectedAppointment ? selectedAppointment.id : `apt-walkin-${Date.now()}`,
       patient_id: selectedPatient.patient_no,
       doctor_id: currentUser.id,
@@ -117,7 +118,7 @@ export const PatientExamination: React.FC<PatientExaminationProps> = ({
 
   const handlePrint = () => {
     if (!savedPrescription || !selectedPatient || !onPrintPrescription) return;
-    const docObj = getDoctors().find(d => d.user_id === currentUser.id) || { user_id: currentUser.id, specialization: 'General Physician', qualification: 'MBBS', fee: 1500, available_days: [] };
+    const docObj = getDoctors().find(d => d.user_id === currentUser.id) || { user_id: currentUser.id, hospital_id: currentUser ? currentUser.hospital_id : 'hospital-1', specialization: 'General Physician', qualification: 'MBBS', fee: 1500, available_days: [] };
     onPrintPrescription(savedPrescription, selectedPatient, { user: currentUser, doctor: docObj });
   };
 

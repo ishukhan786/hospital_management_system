@@ -10,10 +10,12 @@ import {
   FeeIPD,
   Receipt,
   HospitalSettings,
-  AuditLog
+  AuditLog,
+  TenantHospital
 } from '../types';
 
 import {
+  initialTenants,
   initialUsers,
   initialPatients,
   initialDoctors,
@@ -31,6 +33,7 @@ import {
 import { supabase } from './supabaseClient';
 
 const STORAGE_KEYS = {
+  TENANTS: 'hms_tenants',
   USERS: 'hms_users',
   PATIENTS: 'hms_patients',
   DOCTORS: 'hms_doctors',
@@ -61,6 +64,7 @@ const setItems = <T>(key: string, items: T[]) => {
 export const syncAllFromSupabase = async () => {
   try {
     const [
+      { data: tenants },
       { data: users },
       { data: patients },
       { data: doctors },
@@ -74,6 +78,7 @@ export const syncAllFromSupabase = async () => {
       { data: settings },
       { data: auditLogs }
     ] = await Promise.all([
+      supabase.from('tenant_hospitals').select('*'),
       supabase.from('users').select('*'),
       supabase.from('patients').select('*'),
       supabase.from('doctors').select('*'),
@@ -90,7 +95,7 @@ export const syncAllFromSupabase = async () => {
 
     let updated = false;
 
-    // If Supabase has data, update local cache
+    if (tenants && tenants.length > 0) { setItems(STORAGE_KEYS.TENANTS, tenants); updated = true; }
     if (users && users.length > 0) { setItems(STORAGE_KEYS.USERS, users); updated = true; }
     if (patients && patients.length > 0) { setItems(STORAGE_KEYS.PATIENTS, patients); updated = true; }
     if (doctors && doctors.length > 0) { setItems(STORAGE_KEYS.DOCTORS, doctors); updated = true; }
@@ -101,16 +106,13 @@ export const syncAllFromSupabase = async () => {
     if (admissions && admissions.length > 0) { setItems(STORAGE_KEYS.ADMISSIONS, admissions); updated = true; }
     if (feesIPD && feesIPD.length > 0) { setItems(STORAGE_KEYS.FEES_IPD, feesIPD); updated = true; }
     if (receipts && receipts.length > 0) { setItems(STORAGE_KEYS.RECEIPTS, receipts); updated = true; }
-    if (settings && settings.length > 0) {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings[0]));
-      window.dispatchEvent(new Event('hms_settings_update'));
-      updated = true;
-    }
+    if (settings && settings.length > 0) { setItems(STORAGE_KEYS.SETTINGS, settings); updated = true; }
     if (auditLogs && auditLogs.length > 0) { setItems(STORAGE_KEYS.AUDIT_LOGS, auditLogs); updated = true; }
 
     // If Supabase tables exist but are empty, seed them from initialData!
-    if (users && users.length === 0) {
+    if (tenants && tenants.length === 0) {
       await Promise.all([
+        supabase.from('tenant_hospitals').upsert(initialTenants),
         supabase.from('users').upsert(initialUsers),
         supabase.from('patients').upsert(initialPatients),
         supabase.from('doctors').upsert(initialDoctors),
@@ -121,10 +123,10 @@ export const syncAllFromSupabase = async () => {
         supabase.from('admissions').upsert(initialAdmissions),
         supabase.from('fees_ipd').upsert(initialFeesIPD),
         supabase.from('receipts').upsert(initialReceipts),
-        supabase.from('hospital_settings').upsert({ id: 'default', ...initialSettings }),
+        supabase.from('hospital_settings').upsert(initialSettings),
         supabase.from('audit_logs').upsert(initialAuditLogs)
       ]);
-      console.log('Supabase seeded successfully with initial data!');
+      console.log('Supabase Multi-Tenant SaaS seeded successfully with initial data!');
     }
 
     if (updated) {
@@ -137,8 +139,8 @@ export const syncAllFromSupabase = async () => {
 
 // Initialize DB & Setup Supabase Realtime Subscriptions
 export const initDB = () => {
-  // 1. Setup Local Storage Defaults if empty
-  if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+  if (!localStorage.getItem(STORAGE_KEYS.TENANTS)) {
+    localStorage.setItem(STORAGE_KEYS.TENANTS, JSON.stringify(initialTenants));
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(initialUsers));
     localStorage.setItem(STORAGE_KEYS.PATIENTS, JSON.stringify(initialPatients));
     localStorage.setItem(STORAGE_KEYS.DOCTORS, JSON.stringify(initialDoctors));
@@ -149,41 +151,20 @@ export const initDB = () => {
     localStorage.setItem(STORAGE_KEYS.ADMISSIONS, JSON.stringify(initialAdmissions));
     localStorage.setItem(STORAGE_KEYS.FEES_IPD, JSON.stringify(initialFeesIPD));
     localStorage.setItem(STORAGE_KEYS.RECEIPTS, JSON.stringify(initialReceipts));
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(initialSettings));
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify([initialSettings]));
     localStorage.setItem(STORAGE_KEYS.AUDIT_LOGS, JSON.stringify(initialAuditLogs));
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(initialUsers[0])); // Default Super Admin
+    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(initialUsers[0])); // Default SaaS Master Admin
   }
 
-  // 2. Perform Async Supabase Sync
   syncAllFromSupabase();
 
-  // 3. Setup Supabase Realtime Subscription
   supabase
-    .channel('hms-global-channel')
+    .channel('hms-saas-channel')
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
       console.log('Realtime change received:', payload);
       syncAllFromSupabase();
     })
     .subscribe();
-};
-
-// Audit Log Helper
-export const addAuditLog = (action: string, details: string) => {
-  const currentUser = getCurrentUser();
-  const logs = getItems<AuditLog>(STORAGE_KEYS.AUDIT_LOGS);
-  const newLog: AuditLog = {
-    id: `log-${Date.now()}`,
-    user_id: currentUser ? currentUser.id : 'system',
-    user_name: currentUser ? currentUser.name : 'System',
-    role: currentUser ? currentUser.role : 'SUPER_ADMIN',
-    action,
-    details,
-    timestamp: new Date().toLocaleString(),
-  };
-  setItems(STORAGE_KEYS.AUDIT_LOGS, [newLog, ...logs]);
-
-  // Push to Supabase
-  supabase.from('audit_logs').insert(newLog).then();
 };
 
 // --- AUTHENTICATION ---
@@ -196,6 +177,7 @@ export const setCurrentUser = (user: User) => {
   localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
   addAuditLog('LOGIN/SWITCH_ROLE', `User logged in / switched to role: ${user.role}`);
   window.dispatchEvent(new Event('hms_auth_update'));
+  window.dispatchEvent(new Event('hms_db_update'));
 };
 
 export const logoutUser = () => {
@@ -204,58 +186,137 @@ export const logoutUser = () => {
   window.dispatchEvent(new Event('hms_auth_update'));
 };
 
-// --- USERS MANAGEMENT ---
-export const getUsers = (): User[] => getItems(STORAGE_KEYS.USERS);
+// Audit Log Helper
+export const addAuditLog = (action: string, details: string) => {
+  const currentUser = getCurrentUser();
+  const logs = getItems<AuditLog>(STORAGE_KEYS.AUDIT_LOGS);
+  const newLog: AuditLog = {
+    id: `log-${Date.now()}`,
+    hospital_id: currentUser ? currentUser.hospital_id : 'saas-master',
+    user_id: currentUser ? currentUser.id : 'system',
+    user_name: currentUser ? currentUser.name : 'System',
+    role: currentUser ? currentUser.role : 'SUPER_ADMIN',
+    action,
+    details,
+    timestamp: new Date().toLocaleString(),
+  };
+  setItems(STORAGE_KEYS.AUDIT_LOGS, [newLog, ...logs]);
+  supabase.from('audit_logs').insert(newLog).then();
+};
+
+// --- SAAS TENANT MANAGEMENT ---
+export const getTenants = (): TenantHospital[] => getItems(STORAGE_KEYS.TENANTS);
+
+export const saveTenant = (tenant: TenantHospital) => {
+  const tenants = getTenants();
+  const index = tenants.findIndex(t => t.id === tenant.id);
+  if (index >= 0) {
+    tenants[index] = tenant;
+    addAuditLog('UPDATE_TENANT', `Updated hospital tenant: ${tenant.name} (${tenant.plan})`);
+  } else {
+    tenants.push(tenant);
+    addAuditLog('REGISTER_TENANT', `Registered new hospital tenant: ${tenant.name} (${tenant.plan})`);
+
+    // Also auto-create a Super Admin user for this new hospital
+    const newAdminUser: User = {
+      id: `usr-${Date.now()}`,
+      hospital_id: tenant.id,
+      name: `${tenant.owner_name} (Admin)`,
+      email: tenant.owner_email,
+      password_hash: 'hashed_password',
+      role: 'SUPER_ADMIN',
+      is_active: true,
+    };
+    const users = getItems<User>(STORAGE_KEYS.USERS);
+    users.push(newAdminUser);
+    setItems(STORAGE_KEYS.USERS, users);
+    supabase.from('users').upsert(newAdminUser).then();
+
+    // Also auto-create default settings for this hospital
+    const newSettings: HospitalSettings = {
+      id: tenant.id,
+      hospital_name: tenant.name,
+      hospital_logo: tenant.logo,
+      departments: ['General Medicine', 'Pediatrics', 'Cardiology', 'Gynecology'],
+      address: tenant.address,
+      phone: tenant.phone,
+    };
+    const settingsList = getItems<HospitalSettings>(STORAGE_KEYS.SETTINGS);
+    settingsList.push(newSettings);
+    setItems(STORAGE_KEYS.SETTINGS, settingsList);
+    supabase.from('hospital_settings').upsert(newSettings).then();
+  }
+  setItems(STORAGE_KEYS.TENANTS, tenants);
+  supabase.from('tenant_hospitals').upsert(tenant).then();
+};
+
+export const deleteTenant = (id: string) => {
+  const tenants = getTenants().filter(t => t.id !== id);
+  setItems(STORAGE_KEYS.TENANTS, tenants);
+  addAuditLog('DELETE_TENANT', `Deleted hospital tenant ID: ${id}`);
+  supabase.from('tenant_hospitals').delete().eq('id', id).then();
+};
+
+// --- USERS MANAGEMENT (Multi-Tenant Scoped) ---
+export const getUsers = (): User[] => {
+  const allUsers = getItems<User>(STORAGE_KEYS.USERS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allUsers;
+  return allUsers.filter(u => u.hospital_id === currentUser.hospital_id || u.role === 'SAAS_MASTER_ADMIN');
+};
 
 export const saveUser = (user: User) => {
-  const users = getUsers();
-  const existingIndex = users.findIndex(u => u.id === user.id);
+  const currentUser = getCurrentUser();
+  const hospital_id = user.hospital_id || (currentUser ? currentUser.hospital_id : 'hospital-1');
+  const userObj = { ...user, hospital_id };
+
+  const allUsers = getItems<User>(STORAGE_KEYS.USERS);
+  const existingIndex = allUsers.findIndex(u => u.id === userObj.id);
   if (existingIndex >= 0) {
-    users[existingIndex] = user;
-    addAuditLog('UPDATE_USER', `Updated user: ${user.name} (${user.role})`);
+    allUsers[existingIndex] = userObj;
+    addAuditLog('UPDATE_USER', `Updated user: ${userObj.name} (${userObj.role})`);
   } else {
-    users.push(user);
-    addAuditLog('CREATE_USER', `Created new user: ${user.name} (${user.role})`);
+    allUsers.push(userObj);
+    addAuditLog('CREATE_USER', `Created new user: ${userObj.name} (${userObj.role})`);
   }
-  setItems(STORAGE_KEYS.USERS, users);
+  setItems(STORAGE_KEYS.USERS, allUsers);
+  supabase.from('users').upsert(userObj).then();
 
-  // Push to Supabase
-  supabase.from('users').upsert(user).then();
-
-  // If Doctor, sync doctors table
-  if (user.role === 'DOCTOR') {
-    const doctors = getDoctors();
-    const docIndex = doctors.findIndex(d => d.user_id === user.id);
+  if (userObj.role === 'DOCTOR') {
+    const allDoctors = getItems<Doctor>(STORAGE_KEYS.DOCTORS);
+    const docIndex = allDoctors.findIndex(d => d.user_id === userObj.id);
     const doctorObj: Doctor = {
-      user_id: user.id,
-      specialization: user.specialization || 'General Physician',
-      qualification: user.qualification || 'MBBS',
-      fee: user.fee || 1500,
-      available_days: user.available_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+      user_id: userObj.id,
+      hospital_id: userObj.hospital_id,
+      specialization: userObj.specialization || 'General Physician',
+      qualification: userObj.qualification || 'MBBS',
+      fee: userObj.fee || 1500,
+      available_days: userObj.available_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
     };
     if (docIndex >= 0) {
-      doctors[docIndex] = doctorObj;
+      allDoctors[docIndex] = doctorObj;
     } else {
-      doctors.push(doctorObj);
+      allDoctors.push(doctorObj);
     }
-    setItems(STORAGE_KEYS.DOCTORS, doctors);
-
-    // Push to Supabase
+    setItems(STORAGE_KEYS.DOCTORS, allDoctors);
     supabase.from('doctors').upsert(doctorObj).then();
   }
 };
 
 export const deleteUser = (id: string) => {
-  const users = getUsers().filter(u => u.id !== id);
-  setItems(STORAGE_KEYS.USERS, users);
+  const allUsers = getItems<User>(STORAGE_KEYS.USERS).filter(u => u.id !== id);
+  setItems(STORAGE_KEYS.USERS, allUsers);
   addAuditLog('DELETE_USER', `Deleted user ID: ${id}`);
-
-  // Delete from Supabase
   supabase.from('users').delete().eq('id', id).then();
 };
 
-// --- PATIENTS MANAGEMENT ---
-export const getPatients = (): Patient[] => getItems(STORAGE_KEYS.PATIENTS);
+// --- PATIENTS MANAGEMENT (Multi-Tenant Scoped) ---
+export const getPatients = (): Patient[] => {
+  const allPatients = getItems<Patient>(STORAGE_KEYS.PATIENTS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allPatients;
+  return allPatients.filter(p => p.hospital_id === currentUser.hospital_id);
+};
 
 export const getPatientByNo = (patient_no: string): Patient | undefined => {
   return getPatients().find(p => p.patient_no === patient_no);
@@ -287,35 +348,40 @@ export const savePatient = (patient: Patient): { success: boolean; message: stri
     return { success: false, message: 'CNIC already exists in the system!' };
   }
 
-  const patients = getPatients();
-  const existingIndex = patients.findIndex(p => p.patient_no === patient.patient_no);
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+  const patientObj = { ...patient, hospital_id };
+
+  const allPatients = getItems<Patient>(STORAGE_KEYS.PATIENTS);
+  const existingIndex = allPatients.findIndex(p => p.patient_no === patientObj.patient_no && p.hospital_id === hospital_id);
 
   if (existingIndex >= 0) {
-    patients[existingIndex] = patient;
-    addAuditLog('UPDATE_PATIENT', `Updated patient record: ${patient.name} (${patient.patient_no})`);
+    allPatients[existingIndex] = patientObj;
+    addAuditLog('UPDATE_PATIENT', `Updated patient record: ${patientObj.name} (${patientObj.patient_no})`);
   } else {
-    patients.push(patient);
-    addAuditLog('REGISTER_PATIENT', `Registered new patient: ${patient.name} (${patient.patient_no})`);
+    allPatients.push(patientObj);
+    addAuditLog('REGISTER_PATIENT', `Registered new patient: ${patientObj.name} (${patientObj.patient_no})`);
   }
-  setItems(STORAGE_KEYS.PATIENTS, patients);
-
-  // Push to Supabase
-  supabase.from('patients').upsert(patient).then();
+  setItems(STORAGE_KEYS.PATIENTS, allPatients);
+  supabase.from('patients').upsert(patientObj).then();
 
   return { success: true, message: 'Patient saved successfully!' };
 };
 
 export const deletePatient = (patient_no: string) => {
-  const patients = getPatients().filter(p => p.patient_no !== patient_no);
-  setItems(STORAGE_KEYS.PATIENTS, patients);
+  const allPatients = getItems<Patient>(STORAGE_KEYS.PATIENTS).filter(p => p.patient_no !== patient_no);
+  setItems(STORAGE_KEYS.PATIENTS, allPatients);
   addAuditLog('DELETE_PATIENT', `Deleted patient: ${patient_no}`);
-
-  // Delete from Supabase
   supabase.from('patients').delete().eq('patient_no', patient_no).then();
 };
 
 // --- DOCTORS ---
-export const getDoctors = (): Doctor[] => getItems(STORAGE_KEYS.DOCTORS);
+export const getDoctors = (): Doctor[] => {
+  const allDoctors = getItems<Doctor>(STORAGE_KEYS.DOCTORS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allDoctors;
+  return allDoctors.filter(d => d.hospital_id === currentUser.hospital_id);
+};
 
 export const getDoctorDetails = (user_id: string): { user: User; doctor: Doctor } | undefined => {
   const user = getUsers().find(u => u.id === user_id);
@@ -325,30 +391,37 @@ export const getDoctorDetails = (user_id: string): { user: User; doctor: Doctor 
 };
 
 // --- APPOINTMENTS ---
-export const getAppointments = (): Appointment[] => getItems(STORAGE_KEYS.APPOINTMENTS);
+export const getAppointments = (): Appointment[] => {
+  const allApts = getItems<Appointment>(STORAGE_KEYS.APPOINTMENTS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allApts;
+  return allApts.filter(a => a.hospital_id === currentUser.hospital_id);
+};
 
-export const bookAppointment = (appointment: Omit<Appointment, 'id' | 'token_no' | 'status'>): Appointment => {
-  const appointments = getAppointments();
-  const doctorApts = appointments.filter(a => a.doctor_id === appointment.doctor_id && a.date === appointment.date);
+export const bookAppointment = (appointment: Omit<Appointment, 'id' | 'token_no' | 'status' | 'hospital_id'>): Appointment => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+
+  const allApts = getItems<Appointment>(STORAGE_KEYS.APPOINTMENTS);
+  const doctorApts = allApts.filter(a => a.doctor_id === appointment.doctor_id && a.date === appointment.date && a.hospital_id === hospital_id);
   const token_no = doctorApts.length + 1;
   const newApt: Appointment = {
     ...appointment,
     id: `apt-${Date.now()}`,
+    hospital_id,
     token_no,
     status: 'Booked',
   };
-  appointments.push(newApt);
-  setItems(STORAGE_KEYS.APPOINTMENTS, appointments);
-
-  // Push to Supabase
+  allApts.push(newApt);
+  setItems(STORAGE_KEYS.APPOINTMENTS, allApts);
   supabase.from('appointments').upsert(newApt).then();
 
-  // Generate OPD Fee Unpaid
   const doctorInfo = getDoctorDetails(appointment.doctor_id);
   const feeAmount = doctorInfo ? doctorInfo.doctor.fee : 1500;
-  const feesOPD = getFeesOPD();
+  const allFeesOPD = getItems<FeeOPD>(STORAGE_KEYS.FEES_OPD);
   const newFee: FeeOPD = {
     id: `fee-${Date.now()}`,
+    hospital_id,
     patient_id: appointment.patient_id,
     doctor_id: appointment.doctor_id,
     appointment_id: newApt.id,
@@ -356,10 +429,8 @@ export const bookAppointment = (appointment: Omit<Appointment, 'id' | 'token_no'
     status: 'Unpaid',
     receipt_no: `REC-OPD-${Date.now().toString().slice(-4)}`,
   };
-  feesOPD.push(newFee);
-  setItems(STORAGE_KEYS.FEES_OPD, feesOPD);
-
-  // Push to Supabase
+  allFeesOPD.push(newFee);
+  setItems(STORAGE_KEYS.FEES_OPD, allFeesOPD);
   supabase.from('fees_opd').upsert(newFee).then();
 
   addAuditLog('BOOK_APPOINTMENT', `Booked appointment ${newApt.id} for ${newApt.patient_id}`);
@@ -367,73 +438,87 @@ export const bookAppointment = (appointment: Omit<Appointment, 'id' | 'token_no'
 };
 
 export const updateAppointmentStatus = (id: string, status: Appointment['status']) => {
-  const appointments = getAppointments();
-  const apt = appointments.find(a => a.id === id);
+  const allApts = getItems<Appointment>(STORAGE_KEYS.APPOINTMENTS);
+  const apt = allApts.find(a => a.id === id);
   if (apt) {
     apt.status = status;
-    setItems(STORAGE_KEYS.APPOINTMENTS, appointments);
+    setItems(STORAGE_KEYS.APPOINTMENTS, allApts);
     addAuditLog('UPDATE_APPOINTMENT', `Updated appointment ${id} status to ${status}`);
-
-    // Push to Supabase
     supabase.from('appointments').update({ status }).eq('id', id).then();
   }
 };
 
 // --- PRESCRIPTIONS ---
-export const getPrescriptions = (): Prescription[] => getItems(STORAGE_KEYS.PRESCRIPTIONS);
+export const getPrescriptions = (): Prescription[] => {
+  const allPrsc = getItems<Prescription>(STORAGE_KEYS.PRESCRIPTIONS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allPrsc;
+  return allPrsc.filter(p => p.hospital_id === currentUser.hospital_id);
+};
 
-export const savePrescription = (prescription: Prescription) => {
-  const prescriptions = getPrescriptions();
-  prescriptions.push(prescription);
-  setItems(STORAGE_KEYS.PRESCRIPTIONS, prescriptions);
+export const savePrescription = (prescription: Omit<Prescription, 'hospital_id'>) => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+  const prscObj = { ...prescription, hospital_id };
 
-  // Push to Supabase
-  supabase.from('prescriptions').upsert(prescription).then();
+  const allPrsc = getItems<Prescription>(STORAGE_KEYS.PRESCRIPTIONS);
+  allPrsc.push(prscObj);
+  setItems(STORAGE_KEYS.PRESCRIPTIONS, allPrsc);
+  supabase.from('prescriptions').upsert(prscObj).then();
 
-  // Mark appointment as Completed
   updateAppointmentStatus(prescription.appointment_id, 'Completed');
   addAuditLog('WRITE_PRESCRIPTION', `Prescription created for Patient: ${prescription.patient_id}`);
 };
 
 // --- LAB TESTS ---
-export const getLabTests = (): LabTest[] => getItems(STORAGE_KEYS.LAB_TESTS);
+export const getLabTests = (): LabTest[] => {
+  const allTests = getItems<LabTest>(STORAGE_KEYS.LAB_TESTS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allTests;
+  return allTests.filter(t => t.hospital_id === currentUser.hospital_id);
+};
 
-export const saveLabTest = (labTest: LabTest) => {
-  const tests = getLabTests();
-  const index = tests.findIndex(t => t.id === labTest.id);
+export const saveLabTest = (labTest: Omit<LabTest, 'hospital_id'>) => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+  const testObj = { ...labTest, hospital_id };
+
+  const allTests = getItems<LabTest>(STORAGE_KEYS.LAB_TESTS);
+  const index = allTests.findIndex(t => t.id === testObj.id);
   if (index >= 0) {
-    tests[index] = labTest;
-    addAuditLog('UPDATE_LAB_TEST', `Updated lab test ${labTest.test_name} for ${labTest.patient_id}`);
+    allTests[index] = testObj;
+    addAuditLog('UPDATE_LAB_TEST', `Updated lab test ${testObj.test_name} for ${testObj.patient_id}`);
   } else {
-    tests.push(labTest);
-    addAuditLog('ORDER_LAB_TEST', `Ordered lab test ${labTest.test_name} for ${labTest.patient_id}`);
+    allTests.push(testObj);
+    addAuditLog('ORDER_LAB_TEST', `Ordered lab test ${testObj.test_name} for ${testObj.patient_id}`);
   }
-  setItems(STORAGE_KEYS.LAB_TESTS, tests);
-
-  // Push to Supabase
-  supabase.from('lab_tests').upsert(labTest).then();
+  setItems(STORAGE_KEYS.LAB_TESTS, allTests);
+  supabase.from('lab_tests').upsert(testObj).then();
 };
 
 // --- CASHIER & FEES ---
-export const getFeesOPD = (): FeeOPD[] => getItems(STORAGE_KEYS.FEES_OPD);
+export const getFeesOPD = (): FeeOPD[] => {
+  const allFees = getItems<FeeOPD>(STORAGE_KEYS.FEES_OPD);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allFees;
+  return allFees.filter(f => f.hospital_id === currentUser.hospital_id);
+};
 
 export const payFeeOPD = (fee_id: string, payment_mode: 'Cash' | 'Card' | 'Online' = 'Cash'): Receipt | null => {
-  const fees = getFeesOPD();
-  const fee = fees.find(f => f.id === fee_id);
+  const allFees = getItems<FeeOPD>(STORAGE_KEYS.FEES_OPD);
+  const fee = allFees.find(f => f.id === fee_id);
   if (!fee) return null;
 
   fee.status = 'Paid';
   fee.paid_at = new Date().toLocaleString();
-  setItems(STORAGE_KEYS.FEES_OPD, fees);
-
-  // Push to Supabase
+  setItems(STORAGE_KEYS.FEES_OPD, allFees);
   supabase.from('fees_opd').update({ status: 'Paid', paid_at: fee.paid_at }).eq('id', fee_id).then();
 
-  // Generate Receipt
-  const receipts = getReceipts();
+  const allReceipts = getItems<Receipt>(STORAGE_KEYS.RECEIPTS);
   const currentUser = getCurrentUser();
   const newReceipt: Receipt = {
     id: `rec-${Date.now()}`,
+    hospital_id: fee.hospital_id,
     patient_id: fee.patient_id,
     total_amount: fee.amount,
     discount: 0,
@@ -444,18 +529,15 @@ export const payFeeOPD = (fee_id: string, payment_mode: 'Cash' | 'Card' | 'Onlin
     receipt_type: 'OPD',
     reference_id: fee.appointment_id,
   };
-  receipts.push(newReceipt);
-  setItems(STORAGE_KEYS.RECEIPTS, receipts);
-
-  // Push to Supabase
+  allReceipts.push(newReceipt);
+  setItems(STORAGE_KEYS.RECEIPTS, allReceipts);
   supabase.from('receipts').upsert(newReceipt).then();
 
-  // Update appointment status to Waiting if it was Booked
-  const appointments = getAppointments();
-  const apt = appointments.find(a => a.id === fee.appointment_id);
+  const allApts = getItems<Appointment>(STORAGE_KEYS.APPOINTMENTS);
+  const apt = allApts.find(a => a.id === fee.appointment_id);
   if (apt && apt.status === 'Booked') {
     apt.status = 'Waiting';
-    setItems(STORAGE_KEYS.APPOINTMENTS, appointments);
+    setItems(STORAGE_KEYS.APPOINTMENTS, allApts);
     supabase.from('appointments').update({ status: 'Waiting' }).eq('id', fee.appointment_id).then();
   }
 
@@ -464,29 +546,40 @@ export const payFeeOPD = (fee_id: string, payment_mode: 'Cash' | 'Card' | 'Onlin
 };
 
 // --- IPD & ADMISSIONS ---
-export const getAdmissions = (): Admission[] => getItems(STORAGE_KEYS.ADMISSIONS);
+export const getAdmissions = (): Admission[] => {
+  const allAdm = getItems<Admission>(STORAGE_KEYS.ADMISSIONS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allAdm;
+  return allAdm.filter(a => a.hospital_id === currentUser.hospital_id);
+};
 
-export const getFeesIPD = (): FeeIPD[] => getItems(STORAGE_KEYS.FEES_IPD);
+export const getFeesIPD = (): FeeIPD[] => {
+  const allFees = getItems<FeeIPD>(STORAGE_KEYS.FEES_IPD);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allFees;
+  return allFees.filter(f => f.hospital_id === currentUser.hospital_id);
+};
 
-export const admitPatient = (admission: Omit<Admission, 'id' | 'status'>): Admission => {
-  const admissions = getAdmissions();
+export const admitPatient = (admission: Omit<Admission, 'id' | 'status' | 'hospital_id'>): Admission => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+
+  const allAdm = getItems<Admission>(STORAGE_KEYS.ADMISSIONS);
   const newAdm: Admission = {
     ...admission,
     id: `adm-${Date.now()}`,
+    hospital_id,
     status: 'Admitted',
   };
-  admissions.push(newAdm);
-  setItems(STORAGE_KEYS.ADMISSIONS, admissions);
-
-  // Push to Supabase
+  allAdm.push(newAdm);
+  setItems(STORAGE_KEYS.ADMISSIONS, allAdm);
   supabase.from('admissions').upsert(newAdm).then();
 
-  // Update patient type to IPD
-  const patients = getPatients();
-  const p = patients.find(pat => pat.patient_no === admission.patient_id);
+  const allPatients = getItems<Patient>(STORAGE_KEYS.PATIENTS);
+  const p = allPatients.find(pat => pat.patient_no === admission.patient_id && pat.hospital_id === hospital_id);
   if (p) {
     p.patient_type = 'IPD';
-    setItems(STORAGE_KEYS.PATIENTS, patients);
+    setItems(STORAGE_KEYS.PATIENTS, allPatients);
     supabase.from('patients').update({ patient_type: 'IPD' }).eq('patient_no', admission.patient_id).then();
   }
 
@@ -494,42 +587,41 @@ export const admitPatient = (admission: Omit<Admission, 'id' | 'status'>): Admis
   return newAdm;
 };
 
-export const addFeeIPD = (feeIPD: Omit<FeeIPD, 'id'>) => {
-  const fees = getFeesIPD();
+export const addFeeIPD = (feeIPD: Omit<FeeIPD, 'id' | 'hospital_id'>) => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+
+  const allFees = getItems<FeeIPD>(STORAGE_KEYS.FEES_IPD);
   const newFee: FeeIPD = {
     ...feeIPD,
     id: `ipd-fee-${Date.now()}`,
+    hospital_id,
   };
-  fees.push(newFee);
-  setItems(STORAGE_KEYS.FEES_IPD, fees);
-
-  // Push to Supabase
+  allFees.push(newFee);
+  setItems(STORAGE_KEYS.FEES_IPD, allFees);
   supabase.from('fees_ipd').upsert(newFee).then();
 
   addAuditLog('ADD_IPD_CHARGE', `Added charge ${feeIPD.charge_type} (${feeIPD.amount}) for Admission ${feeIPD.admission_id}`);
 };
 
 export const dischargePatient = (admission_id: string, payment_mode: 'Cash' | 'Card' | 'Online' = 'Cash'): Receipt | null => {
-  const admissions = getAdmissions();
-  const adm = admissions.find(a => a.id === admission_id);
+  const allAdm = getItems<Admission>(STORAGE_KEYS.ADMISSIONS);
+  const adm = allAdm.find(a => a.id === admission_id);
   if (!adm) return null;
 
   adm.status = 'Discharged';
   adm.discharge_date = new Date().toLocaleString();
-  setItems(STORAGE_KEYS.ADMISSIONS, admissions);
-
-  // Push to Supabase
+  setItems(STORAGE_KEYS.ADMISSIONS, allAdm);
   supabase.from('admissions').update({ status: 'Discharged', discharge_date: adm.discharge_date }).eq('id', admission_id).then();
 
-  // Calculate total IPD fee
   const ipdFees = getFeesIPD().filter(f => f.admission_id === admission_id);
   const totalAmount = ipdFees.reduce((sum, f) => sum + f.amount, 0);
 
-  // Generate Receipt
-  const receipts = getReceipts();
+  const allReceipts = getItems<Receipt>(STORAGE_KEYS.RECEIPTS);
   const currentUser = getCurrentUser();
   const newReceipt: Receipt = {
     id: `rec-${Date.now()}`,
+    hospital_id: adm.hospital_id,
     patient_id: adm.patient_id,
     total_amount: totalAmount,
     discount: 0,
@@ -540,18 +632,15 @@ export const dischargePatient = (admission_id: string, payment_mode: 'Cash' | 'C
     receipt_type: 'IPD',
     reference_id: admission_id,
   };
-  receipts.push(newReceipt);
-  setItems(STORAGE_KEYS.RECEIPTS, receipts);
-
-  // Push to Supabase
+  allReceipts.push(newReceipt);
+  setItems(STORAGE_KEYS.RECEIPTS, allReceipts);
   supabase.from('receipts').upsert(newReceipt).then();
 
-  // Change patient type back to OPD
-  const patients = getPatients();
-  const p = patients.find(pat => pat.patient_no === adm.patient_id);
+  const allPatients = getItems<Patient>(STORAGE_KEYS.PATIENTS);
+  const p = allPatients.find(pat => pat.patient_no === adm.patient_id && pat.hospital_id === adm.hospital_id);
   if (p) {
     p.patient_type = 'OPD';
-    setItems(STORAGE_KEYS.PATIENTS, patients);
+    setItems(STORAGE_KEYS.PATIENTS, allPatients);
     supabase.from('patients').update({ patient_type: 'OPD' }).eq('patient_no', adm.patient_id).then();
   }
 
@@ -560,34 +649,55 @@ export const dischargePatient = (admission_id: string, payment_mode: 'Cash' | 'C
 };
 
 // --- RECEIPTS ---
-export const getReceipts = (): Receipt[] => getItems(STORAGE_KEYS.RECEIPTS);
+export const getReceipts = (): Receipt[] => {
+  const allReceipts = getItems<Receipt>(STORAGE_KEYS.RECEIPTS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allReceipts;
+  return allReceipts.filter(r => r.hospital_id === currentUser.hospital_id);
+};
 
 // --- SETTINGS ---
 export const getSettings = (): HospitalSettings => {
-  const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-  return data ? JSON.parse(data) : initialSettings;
+  const allSettings = getItems<HospitalSettings>(STORAGE_KEYS.SETTINGS);
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+  const found = allSettings.find(s => s.id === hospital_id);
+  return found || initialSettings;
 };
 
-export const saveSettings = (settings: HospitalSettings) => {
-  setItems(STORAGE_KEYS.SETTINGS, [settings]);
-  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+export const saveSettings = (settings: Omit<HospitalSettings, 'id'>) => {
+  const currentUser = getCurrentUser();
+  const hospital_id = currentUser ? currentUser.hospital_id : 'hospital-1';
+  const settingObj: HospitalSettings = { ...settings, id: hospital_id };
+
+  const allSettings = getItems<HospitalSettings>(STORAGE_KEYS.SETTINGS);
+  const index = allSettings.findIndex(s => s.id === hospital_id);
+  if (index >= 0) {
+    allSettings[index] = settingObj;
+  } else {
+    allSettings.push(settingObj);
+  }
+  setItems(STORAGE_KEYS.SETTINGS, allSettings);
+  localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(allSettings)); // keep backward compat
   addAuditLog('UPDATE_SETTINGS', 'Updated hospital settings');
   window.dispatchEvent(new Event('hms_settings_update'));
-
-  // Push to Supabase
-  supabase.from('hospital_settings').upsert({ id: 'default', ...settings }).then();
+  supabase.from('hospital_settings').upsert(settingObj).then();
 };
 
 // --- AUDIT LOGS ---
-export const getAuditLogs = (): AuditLog[] => getItems(STORAGE_KEYS.AUDIT_LOGS);
+export const getAuditLogs = (): AuditLog[] => {
+  const allLogs = getItems<AuditLog>(STORAGE_KEYS.AUDIT_LOGS);
+  const currentUser = getCurrentUser();
+  if (!currentUser || currentUser.role === 'SAAS_MASTER_ADMIN') return allLogs;
+  return allLogs.filter(log => log.hospital_id === currentUser.hospital_id);
+};
 
 // --- RESET / CLEAR SYSTEM DATA ---
 export const clearAllSystemData = async () => {
   try {
-    // 1. Wipe local storage tables except Super Admin user and settings
     setItems(STORAGE_KEYS.USERS, initialUsers);
     setItems(STORAGE_KEYS.PATIENTS, []);
-    setItems(STORAGE_KEYS.DOCTORS, []);
+    setItems(STORAGE_KEYS.DOCTORS, initialDoctors);
     setItems(STORAGE_KEYS.APPOINTMENTS, []);
     setItems(STORAGE_KEYS.PRESCRIPTIONS, []);
     setItems(STORAGE_KEYS.LAB_TESTS, []);
@@ -597,19 +707,16 @@ export const clearAllSystemData = async () => {
     setItems(STORAGE_KEYS.RECEIPTS, []);
     setItems(STORAGE_KEYS.AUDIT_LOGS, initialAuditLogs);
 
-    // 2. Wipe Supabase tables
     await Promise.all([
-      supabase.from('users').delete().neq('id', 'usr-1'), // keep super admin
+      supabase.from('users').delete().neq('id', 'usr-saas-master').neq('id', 'usr-1'),
       supabase.from('patients').delete().neq('patient_no', '0'),
-      supabase.from('doctors').delete().neq('user_id', '0'),
       supabase.from('appointments').delete().neq('id', '0'),
       supabase.from('prescriptions').delete().neq('id', '0'),
       supabase.from('lab_tests').delete().neq('id', '0'),
       supabase.from('fees_opd').delete().neq('id', '0'),
       supabase.from('admissions').delete().neq('id', '0'),
       supabase.from('fees_ipd').delete().neq('id', '0'),
-      supabase.from('receipts').delete().neq('id', '0'),
-      supabase.from('audit_logs').delete().neq('id', 'log-1')
+      supabase.from('receipts').delete().neq('id', '0')
     ]);
 
     console.log('System wiped clean successfully.');
@@ -618,4 +725,3 @@ export const clearAllSystemData = async () => {
     console.error('Error clearing system data:', err);
   }
 };
-

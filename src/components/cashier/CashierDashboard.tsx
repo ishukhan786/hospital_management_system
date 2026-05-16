@@ -245,7 +245,7 @@ export const CashierDashboard: React.FC<CashierDashboardProps> = ({ initialSubTa
                         ) : (
                           onPrintReceipt && pat && (
                             <button className="btn btn-outline" style={{ padding: '6px 12px' }} onClick={() => {
-                              const rec = receipts.find(r => r.reference_id === f.appointment_id) || { id: f.receipt_no, patient_id: f.patient_id, total_amount: f.amount, discount: 0, paid_amount: f.amount, payment_mode: 'Cash', cashier_id: 'usr-5', created_at: f.paid_at || '', receipt_type: 'OPD', reference_id: f.appointment_id };
+                              const rec = receipts.find(r => r.reference_id === f.appointment_id) || { id: f.receipt_no, hospital_id: f.hospital_id, patient_id: f.patient_id, total_amount: f.amount, discount: 0, paid_amount: f.amount, payment_mode: 'Cash', cashier_id: 'usr-5', created_at: f.paid_at || '', receipt_type: 'OPD', reference_id: f.appointment_id };
                               onPrintReceipt(rec, pat);
                             }}>
                               <Printer size={16} /> Print Receipt
@@ -318,7 +318,7 @@ export const CashierDashboard: React.FC<CashierDashboardProps> = ({ initialSubTa
                           ) : (
                             onPrintReceipt && pat && (
                               <button className="btn btn-outline" style={{ padding: '6px 12px' }} onClick={() => {
-                                const rec = receipts.find(r => r.reference_id === adm.id) || { id: `rec-${adm.id}`, patient_id: adm.patient_id, total_amount: totalBill, discount: 0, paid_amount: totalBill, payment_mode: 'Cash', cashier_id: 'usr-5', created_at: adm.discharge_date || '', receipt_type: 'IPD', reference_id: adm.id };
+                                const rec = receipts.find(r => r.reference_id === adm.id) || { id: `rec-${adm.id}`, hospital_id: adm.hospital_id, patient_id: adm.patient_id, total_amount: totalBill, discount: 0, paid_amount: totalBill, payment_mode: 'Cash', cashier_id: 'usr-5', created_at: adm.discharge_date || '', receipt_type: 'IPD', reference_id: adm.id };
                                 onPrintReceipt(rec, pat);
                               }}>
                                 <Printer size={16} /> Print Final Invoice

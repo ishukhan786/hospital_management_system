@@ -78,6 +78,7 @@ export const UserManagement: React.FC = () => {
 
     const userData: User = {
       id: editingUser ? editingUser.id : `usr-${Date.now()}`,
+      hospital_id: editingUser ? editingUser.hospital_id : 'hospital-1',
       name,
       email,
       password_hash: editingUser ? editingUser.password_hash : 'hashed_password',
